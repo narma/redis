@@ -37,6 +37,10 @@
 #include <errno.h>
 #include <ctype.h>
 
+#if EMSCRIPTEN
+ #include <emscripten.h>
+#endif
+
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
@@ -1131,6 +1135,19 @@ int redisEnableKeepAlive(redisContext *c) {
  *
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
+#if EMSCRIPTEN
+
+static char query[1024*16];
+static int can_read = 0;
+
+int EMSCRIPTEN_KEEPALIVE client_populate_buffer(char *q) {
+    strncpy(query, q, 255);    
+    can_read = 1;
+    return 0;
+}
+
+#endif
+
 int redisBufferRead(redisContext *c) {
     char buf[1024*16];
     int nread;
@@ -1139,7 +1156,19 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
+#if EMSCRIPTEN
+    while(1) {
+      if (can_read) {
+        strcpy(buf, query);
+        nread = strlen(buf);
+        can_read = 0;
+        break;
+      }
+      usleep(100000);
+    }
+#else      
     nread = read(c->fd,buf,sizeof(buf));
+#endif    
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */

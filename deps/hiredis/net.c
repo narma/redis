@@ -344,7 +344,11 @@ end:
 
 int redisContextConnectTcp(redisContext *c, const char *addr, int port,
                            const struct timeval *timeout) {
+#if EMSCRIPTEN
+  return REDIS_OK;
+#else
     return _redisContextConnectTcp(c, addr, port, timeout, NULL);
+#endif
 }
 
 int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,

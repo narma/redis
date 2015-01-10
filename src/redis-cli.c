@@ -821,6 +821,8 @@ static sds readArgFromStdin(void) {
     char buf[1024];
     sds arg = sdsempty();
 
+#if EMSCRIPTEN
+#else 
     while(1) {
         int nread = read(fileno(stdin),buf,1024);
 
@@ -831,6 +833,7 @@ static sds readArgFromStdin(void) {
         }
         arg = sdscatlen(arg,buf,nread);
     }
+#endif    
     return arg;
 }
 

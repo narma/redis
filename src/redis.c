@@ -228,30 +228,36 @@ struct redisCommand redisCommandTable[] = {
     {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0},
+#ifndef EMSCRIPTEN
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"arlt",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"rRF",0,NULL,0,0,0,0,0},
+#endif
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rsF",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,"rsF",0,NULL,0,0,0,0,0},
+#ifndef EMSCRIPTEN
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"arslt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
+#endif
     {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
     {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
+#ifndef EMSCRIPTEN
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0},
+#endif
     {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
@@ -260,6 +266,7 @@ struct redisCommand redisCommandTable[] = {
     {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0},
     {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0},
+#ifndef EMSCRIPTEN
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
@@ -268,12 +275,17 @@ struct redisCommand redisCommandTable[] = {
     {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
+#endif
     {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
     {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
+#ifndef EMSCRIPTEN
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
+#endif
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
+#ifndef EMSCRIPTEN
     {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0},
+#endif    
     {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
@@ -332,7 +344,9 @@ void redisLogRaw(int level, const char *msg) {
     fflush(fp);
 
     if (!log_to_stdout) fclose(fp);
+  #ifndef EMSCRIPTEN
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+  #endif
 }
 
 /* Like redisLogRaw() but with printf-alike support. This is the function that
@@ -1224,6 +1238,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             flushAppendOnlyFile(0);
     }
 
+    run_with_period(1000) {
+      redisLog(REDIS_WARNING, "JUST HELLO");
+    }
+
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
@@ -1266,18 +1284,22 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. */
+#ifndef EMSCRIPTEN    
     if (server.get_ack_from_slaves) {
         robj *argv[3];
 
         argv[0] = createStringObject("REPLCONF",8);
         argv[1] = createStringObject("GETACK",6);
         argv[2] = createStringObject("*",1); /* Not used argument. */
+    
         replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+
         decrRefCount(argv[0]);
         decrRefCount(argv[1]);
         decrRefCount(argv[2]);
         server.get_ack_from_slaves = 0;
     }
+#endif
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
@@ -1736,17 +1758,40 @@ void resetServerStats(void) {
     server.stat_net_output_bytes = 0;
 }
 
+#if EMSCRIPTEN
+static redisClient *fakeClient;
+
+  int EMSCRIPTEN_KEEPALIVE r_send(char *query) {
+    sdsfree(fakeClient->querybuf);
+    fakeClient->querybuf = sdsnew(query);
+    //processInputBuffer(fakeClient);
+    readQueryFromClient(NULL, -1, fakeClient, 0);
+    return 0;
+  }
+
+  char *EMSCRIPTEN_KEEPALIVE r_recv() {
+    //return fakeClient->buf;
+
+    return sendReplyToClient(NULL, -1, fakeClient, 0);
+  }
+
+
+#endif
+
 void initServer(void) {
     int j;
 
+#ifndef EMSCRIPTEN
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
     }
+#endif
 
     server.pid = getpid();
     server.current_client = NULL;
@@ -1829,13 +1874,29 @@ void initServer(void) {
 
     /* Create the serverCron() time event, that's our main way to process
      * background operations. */
+#if EMSCRIPTEN
+    // EM_ASM(
+    //   var serverCronFn = Module.cwrap('serverCron', 'number', []);
+    //   window.setInterval(serverCronFn, 100); 
+    // );
+#else
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
+#endif
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+
+#if EMSCRIPTEN
+    emscripten_log(EM_LOG_CONSOLE, "create fake client\n");
+    EM_ASM(      
+      window.rsend = Module.cwrap('r_send', 'number', ['string']);
+      window.rrecv = Module.cwrap('r_recv', 'string', []);
+    );
+    fakeClient = createClient(-1);
+#else
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -1844,6 +1905,7 @@ void initServer(void) {
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
+
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -1857,6 +1919,7 @@ void initServer(void) {
             exit(1);
         }
     }
+#endif    
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
@@ -1868,12 +1931,19 @@ void initServer(void) {
         server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
     }
 
+#ifndef EMSCRIPTEN
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
+
+
     scriptingInit();
+#endif
+  
     slowlogInit();
     latencyMonitorInit();
+#ifndef EMSCRIPTEN    
     bioInit();
+#endif
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -2004,10 +2074,12 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+#ifndef EMSCRIPTEN  
     if (server.aof_state != REDIS_AOF_OFF && flags & REDIS_PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & REDIS_PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
+#endif      
 }
 
 /* Used inside commands to schedule the propagation of additional commands
@@ -2282,6 +2354,7 @@ int processCommand(redisClient *c) {
     }
 
     /* Lua script too slow? Only allow a limited number of commands. */
+#ifndef EMSCRIPTEN    
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != replconfCommand &&
@@ -2296,6 +2369,7 @@ int processCommand(redisClient *c) {
         addReply(c, shared.slowscripterr);
         return REDIS_OK;
     }
+#endif    
 
     /* Exec the command */
     if (c->flags & REDIS_MULTI &&
@@ -2725,7 +2799,9 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak_human:%s\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
+#ifndef EMSCRIPTEN            
             "used_memory_lua:%lld\r\n"
+#endif            
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n"
             "maxmemory_policy:%s\r\n",
@@ -2736,7 +2812,9 @@ sds genRedisInfoString(char *section) {
             peak_hmem,
             (unsigned long)total_system_mem,
             total_system_hmem,
+#ifndef EMSCRIPTEN
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
+#endif
             zmalloc_get_fragmentation_ratio(server.resident_set_size),
             ZMALLOC_LIB,
             evict_policy
@@ -3396,6 +3474,7 @@ void linuxMemoryWarnings(void) {
 }
 #endif /* __linux__ */
 
+#ifndef EMSCRIPTEN
 void createPidFile(void) {
     /* Try to write the pid file in a best-effort way. */
     FILE *fp = fopen(server.pidfile,"w");
@@ -3421,6 +3500,7 @@ void daemonize(void) {
         if (fd > STDERR_FILENO) close(fd);
     }
 }
+#endif
 
 void version(void) {
     printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
@@ -3538,6 +3618,7 @@ void setupSignalHandlers(void) {
 
 void memtest(size_t megabytes, int passes);
 
+#ifndef EMSCRIPTEN
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] is exactly "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
@@ -3565,6 +3646,8 @@ void loadDataFromDisk(void) {
         }
     }
 }
+
+#endif
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
     redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
@@ -3656,7 +3739,22 @@ int redisIsSupervised(void) {
     return 1;
 }
 
+#if EMSCRIPTEN
+void one_iter() {
+  //emscripten_log(EM_LOG_CONSOLE, "iter!\n");
+  usleep(100000);
+}
+#endif
+
+
+
 int main(int argc, char **argv) {
+
+#if EMSCRIPTEN
+    emscripten_log(EM_LOG_CONSOLE, "main\n");
+    //emscripten_set_socket_listen_callback(NULL, pump);
+#endif
+
     struct timeval tv;
 
     /* We need to initialize our libraries, and the server configuration. */
@@ -3669,12 +3767,16 @@ int main(int argc, char **argv) {
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
+
+#ifndef EMSCRIPTEN
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+#endif
     initServerConfig();
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+#ifndef EMSCRIPTEN
     if (server.sentinel_mode) {
         initSentinelConfig();
         initSentinel();
@@ -3735,22 +3837,32 @@ int main(int argc, char **argv) {
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
+#endif
 
+#ifndef EMSCRIPTEN
     server.supervised = redisIsSupervised();
     if (server.daemonize && server.supervised == 0) daemonize();
+#endif
     initServer();
+
+#ifndef EMSCRIPTEN
     if (server.daemonize && server.supervised == 0) createPidFile();
     redisSetProcTitle(argv[0]);
+#endif
     redisAsciiArt();
 
+#ifndef EMSCRIPTEN
     if (!server.sentinel_mode) {
+#endif
         /* Things not needed when running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
     #ifdef __linux__
         linuxMemoryWarnings();
     #endif
         checkTcpBacklogSettings();
+    #ifndef EMSCRIPTEN
         loadDataFromDisk();
+    
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == REDIS_ERR) {
                 redisLog(REDIS_WARNING,
@@ -3766,15 +3878,27 @@ int main(int argc, char **argv) {
     } else {
         sentinelIsRunning();
     }
+    #endif
 
     /* Warning the user about suspicious maxmemory setting. */
     if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
         redisLog(REDIS_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
+    
+#if EMSCRIPTEN
+    emscripten_log(EM_LOG_CONSOLE, "set main loop!\n");
+    EM_ASM(
+      if(window['on_redis_ready']) {
+        window.on_redis_ready();
+      }
+    );
+    emscripten_set_main_loop(one_iter, 60, 1);
+#else
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
+#endif
     return 0;
 }
 

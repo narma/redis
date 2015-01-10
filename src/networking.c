@@ -68,6 +68,7 @@ redisClient *createClient(int fd) {
      * This is useful since all the Redis commands needs to be executed
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
+#ifndef EMSCRIPTEN
     if (fd != -1) {
         anetNonBlock(NULL,fd);
         anetEnableTcpNoDelay(NULL,fd);
@@ -81,6 +82,7 @@ redisClient *createClient(int fd) {
             return NULL;
         }
     }
+#endif
 
     selectDb(c,0);
     c->id = server.next_client_id++;
@@ -143,6 +145,9 @@ redisClient *createClient(int fd) {
  * data to the clients output buffers. If the function returns REDIS_ERR no
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
+#if EMSCRIPTEN
+  return REDIS_OK;
+#endif
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
     if ((c->flags & REDIS_MASTER) &&
         !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
@@ -589,7 +594,9 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
-
+#if EMSCRIPTEN
+    usleep(200000);
+#else
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
@@ -601,6 +608,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
         acceptCommonHandler(cfd,0);
     }
+#endif
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -787,7 +795,11 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+#ifndef EMSCRIPTEN
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+#else 
+char *sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+#endif
     redisClient *c = privdata;
     int nwritten = 0, totwritten = 0, objlen;
     size_t objmem;
@@ -795,9 +807,19 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
+#if EMSCRIPTEN
+      char *r_pointer = NULL;
+#endif
+
     while(c->bufpos > 0 || listLength(c->reply)) {
         if (c->bufpos > 0) {
+#ifndef EMSCRIPTEN
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+#else
+            //emscripten_log(EM_LOG_CONSOLE, "REPLY: %s", c->buf+c->sentlen);
+            r_pointer = c->buf+c->sentlen;
+            nwritten = c->bufpos-c->sentlen;
+#endif
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -819,7 +841,13 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 continue;
             }
 
+#ifndef EMSCRIPTEN
             nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+#else
+            //emscripten_log(EM_LOG_CONSOLE, "REPLY2: %s", ((char*)o->ptr)+c->sentlen);
+            r_pointer = ((char*)o->ptr)+c->sentlen;
+            nwritten = objlen-c->sentlen;
+#endif            
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -851,7 +879,11 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
             freeClient(c);
+#if EMSCRIPTEN
+            return "";
+#else
             return;
+#endif
         }
     }
     if (totwritten > 0) {
@@ -868,6 +900,18 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Close connection after entire reply has been sent. */
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) freeClient(c);
     }
+#if EMSCRIPTEN
+    if(nwritten > 0) {
+      //return c->buf+c->sentlen;
+      //sds res = sdsempty();
+      char *s = (char *) malloc(nwritten+1);
+      strncpy(s, r_pointer, nwritten);
+      s[nwritten] = 0;
+      //sdscatlen(res, c->buf+c->sentlen, nwritten);
+      return s;
+    }
+    return "";
+#endif
 }
 
 /* resetClient prepare the client to process the next command */
@@ -1163,8 +1207,16 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+    
+#ifndef EMSCRIPTEN
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     nread = read(fd, c->querybuf+qblen, readlen);
+#else
+    processInputBuffer(c);
+    server.current_client = NULL;
+    return;
+#endif
+#ifndef EMSCRIPTEN 
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;
@@ -1199,6 +1251,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     processInputBuffer(c);
     server.current_client = NULL;
+#endif
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,

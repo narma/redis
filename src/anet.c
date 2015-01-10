@@ -418,6 +418,9 @@ int anetWrite(int fd, char *buf, int count)
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
+#if EMSCRIPTEN
+  return ANET_OK;
+#endif
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
         close(s);
@@ -429,8 +432,10 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         close(s);
         return ANET_ERR;
     }
+
     return ANET_OK;
 }
+
 
 static int anetV6Only(char *err, int s) {
     int yes = 1;

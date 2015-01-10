@@ -188,7 +188,8 @@ void setproctitle(const char *fmt, ...);
 	 * which will force your compiles to bomb until you fix
 	 * the above macros.
 	 */
-#error "Undefined or invalid BYTE_ORDER"
+//#error "Undefined or invalid BYTE_ORDER"
+#define BYTE_ORDER LITTLE_ENDIAN
 #endif
 
 #if (__i386 || __amd64 || __powerpc__) && __GNUC__

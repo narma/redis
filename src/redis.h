@@ -66,6 +66,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
 
+#if EMSCRIPTEN
+ #include <emscripten.h>
+#endif
+
 /* Error codes */
 #define REDIS_OK                0
 #define REDIS_ERR               -1
@@ -395,6 +399,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
+
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
@@ -1029,7 +1034,11 @@ void closeTimedoutClients(void);
 void freeClient(redisClient *c);
 void freeClientAsync(redisClient *c);
 void resetClient(redisClient *c);
+#ifndef EMSCRIPTEN
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
+#else
+char *sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
+#endif
 void *addDeferredMultiBulkLength(redisClient *c);
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length);
 void processInputBuffer(redisClient *c);
